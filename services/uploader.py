@@ -54,9 +54,7 @@ def save_state(state: Dict, path: str = "data/state.json") -> None:
 
 
 def compute_article_hash(article_chunk_dir: Path) -> str:
-    """
-    Hash toàn bộ nội dung chunk files của 1 article (sorted theo tên file).
-    """
+
     sha = hashlib.sha256()
     files = sorted(article_chunk_dir.glob("*.md"))
     for fp in files:
