@@ -6,9 +6,31 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
-BASE_URL = "https://api.openai.com/v1"
+# Allow overriding the endpoint (e.g. when using a proxy/Azure); fall back to public API
+BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+
+
+def make_openai_session() -> requests.Session:
+    """Create a session tuned for OpenAI endpoints with retry + backoff."""
+    session = requests.Session()
+    retry = Retry(
+        total=8,
+        connect=8,
+        read=8,
+        other=8,
+        backoff_factor=1.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=("GET", "POST", "DELETE"),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=10)
+    session.mount("https://", adapter)
+    session.headers.update({"Connection": "close"})
+    return session
 
 
 def _headers(beta_assistants_v2: bool = True) -> Dict[str, str]:
@@ -75,13 +97,14 @@ def upload_file(path: Path) -> str:
     """
     Upload file to Files API. Purpose must be 'assistants' for Assistants/File Search usage.
     """
+    session = make_openai_session()
     with path.open("rb") as f:
-        r = requests.post(
+        r = session.post(
             f"{BASE_URL}/files",
             headers=_headers(beta_assistants_v2=False),  # files endpoint doesn't need beta header
             files={"file": (path.name, f)},
             data={"purpose": "assistants"},
-            timeout=120,
+            timeout=(30, 120),
         )
     r.raise_for_status()
     return r.json()["id"]
@@ -117,42 +140,70 @@ def create_file_batch(vector_store_id: str, file_ids: List[str]) -> str:
     """
     Attach file_ids to vector store with a file batch.
     """
+    session = make_openai_session()
     payload = {"file_ids": file_ids}
-    r = requests.post(
+    r = session.post(
         f"{BASE_URL}/vector_stores/{vector_store_id}/file_batches",
         headers={**_headers(beta_assistants_v2=True), "Content-Type": "application/json"},
         json=payload,
-        timeout=120,
+        timeout=(30, 120),
     )
     r.raise_for_status()
     return r.json()["id"]
 
 
-def poll_file_batch(vector_store_id: str, batch_id: str, interval_sec: int = 2) -> Dict:
+def poll_file_batch(vector_store_id: str, batch_id: str, interval: int = 3, max_wait_sec: int = 900) -> Dict:
+    """
+    Poll a file batch with slower cadence and tolerant timeouts.
+    - interval: poll delay (seconds), will backoff up to ~15s on errors
+    - max_wait_sec: overall timeout (default 15 minutes)
+    """
+    session = make_openai_session()
+    start = time.time()
+    url = f"{BASE_URL}/vector_stores/{vector_store_id}/file_batches/{batch_id}"
+
     while True:
-        r = requests.get(
-            f"{BASE_URL}/vector_stores/{vector_store_id}/file_batches/{batch_id}",
-            headers=_headers(beta_assistants_v2=True),
-            timeout=60,
-        )
-        r.raise_for_status()
-        data = r.json()
+        if time.time() - start > max_wait_sec:
+            raise TimeoutError(f"poll_file_batch timeout after {max_wait_sec}s: {batch_id}")
+
+        try:
+            r = session.get(
+                url,
+                headers=_headers(beta_assistants_v2=True),
+                timeout=(15, 60),  # connect, read
+            )
+            r.raise_for_status()
+            data = r.json()
+        except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout) as e:
+            print(f"[poll] timeout: {e} -> sleep {interval}s")
+            time.sleep(interval)
+            interval = min(interval * 1.5, 15)
+            continue
+        except requests.exceptions.RequestException as e:
+            print(f"[poll] request error: {e} -> sleep {interval}s")
+            time.sleep(interval)
+            interval = min(interval * 1.5, 15)
+            continue
+
         status = data.get("status")
         counts = data.get("file_counts", {})
-        print(f"[vs batch] id={batch_id} status={status} counts={counts}")
+        print(f"[batch {batch_id}] status={status} counts={counts}")
+
         if status in ("completed", "failed", "cancelled"):
             return data
-        time.sleep(interval_sec)
+
+        time.sleep(interval)
 
 
 def delete_vector_store_file(vector_store_id: str, file_id: str) -> None:
     """
     Remove file from vector store (does NOT delete the file object).
     """
-    r = requests.delete(
+    session = make_openai_session()
+    r = session.delete(
         f"{BASE_URL}/vector_stores/{vector_store_id}/files/{file_id}",
         headers=_headers(beta_assistants_v2=True),
-        timeout=60,
+        timeout=(15, 60),
     )
     # ignore 404 to be robust
     if r.status_code not in (200, 204, 404):
@@ -200,11 +251,12 @@ def upload_article_chunks_to_vector_store(
 
 
 def create_vector_store(name: str) -> str:
-    r = requests.post(
+    session = make_openai_session()
+    r = session.post(
         f"{BASE_URL}/vector_stores",
         headers={**_headers(beta_assistants_v2=True), "Content-Type": "application/json"},
         json={"name": name},
-        timeout=60,
+        timeout=(30, 120),
     )
     r.raise_for_status()
     return r.json()["id"]
