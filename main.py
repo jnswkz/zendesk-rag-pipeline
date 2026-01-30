@@ -1,35 +1,17 @@
-from datetime import datetime, timezone
-import time
-from pathlib import Path
 import shutil
+from datetime import datetime, timezone
+from pathlib import Path
 
 from services.crawler import list_articles
 from services.converter import convert_article_to_md
+from services.uploader import load_state, save_state, upload_delta_articles
 from services.chunk import chunk_markdown
-
-
 
 URL = "https://support.optisigns.com"
 LOCALE = "en-us"
 OUT_DIR = "data/md"
 CHUNK_DIR = "data/chunks"
-
-def write_md_and_chunks(articles: list[dict], overwrite: bool = False):
-    total_chunks = 0
-
-    for article in articles:
-        md_path = convert_article_to_md(article, out_dir=OUT_DIR, allow_overwrite=overwrite)
-        total_chunks += write_chunks_for_md(Path(md_path), chunk_dir=CHUNK_DIR)
-
-    print(f"[pipeline] articles={len(articles)} chunks={total_chunks}")
-
-def parse_ts(ts: str) -> datetime:
-    ts = ts.rstrip("Z")
-    return datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
-
-
-def fetch_articles():
-    return list_articles(URL, LOCALE)
+STATE_PATH = "data/state.json"
 
 
 def write_chunks_for_md(md_path: Path, chunk_dir: str = "data/chunks") -> int:
@@ -50,33 +32,46 @@ def write_chunks_for_md(md_path: Path, chunk_dir: str = "data/chunks") -> int:
 
     return len(chunks)
 
-def main():
+
+def parse_ts(ts: str) -> datetime:
+    return datetime.fromisoformat(ts.rstrip("Z")).replace(tzinfo=timezone.utc)
+
+def fetch_articles():
+    return list_articles(URL, LOCALE)
+
+def run_once():
     articles = fetch_articles()
     if not articles:
+        print("[run] no articles fetched")
         return
 
-    write_md_and_chunks(articles, overwrite=True)
+    state = load_state(STATE_PATH)
+    last_updated = state.get("last_updated")
 
-    last_updated = max(
-        parse_ts(article["updated_at"]) for article in articles if "updated_at" in article
-    )
+    if last_updated:
+        last_dt = parse_ts(last_updated)
+        target = [a for a in articles if "updated_at" in a and parse_ts(a["updated_at"]) > last_dt]
+    else:
+        target = articles  # first run
 
-    while True:
-        time.sleep(86400)
-        fresh = fetch_articles()
-        if not fresh:
-            continue
+    print(f"[run] fetched={len(articles)} target={len(target)}")
 
-        new_or_updated = [
-            a for a in fresh if "updated_at" in a and parse_ts(a["updated_at"]) > last_updated
-        ]
+    total_chunks = 0
+    for a in target:
+        md_path = convert_article_to_md(a, out_dir=OUT_DIR, allow_overwrite=True)
+        total_chunks += write_chunks_for_md(Path(md_path), chunk_dir=CHUNK_DIR)
 
-        if not new_or_updated:
-            continue
+    print(f"[run] chunked_articles={len(target)} total_chunks={total_chunks}")
 
-        write_md_and_chunks(new_or_updated, overwrite=True)
-        last_updated = max(parse_ts(a["updated_at"]) for a in fresh if "updated_at" in a)
+    upload_delta_articles(chunk_root=CHUNK_DIR, state_path=STATE_PATH)
 
+    max_updated = max(parse_ts(a["updated_at"]) for a in articles if "updated_at" in a).isoformat().replace("+00:00", "Z")
+    state = load_state(STATE_PATH)
+    state["last_updated"] = max_updated
+    save_state(state, STATE_PATH)
+    print(f"[run] last_updated={max_updated}")
 
 if __name__ == "__main__":
-    main()
+    run_once()
+
+
