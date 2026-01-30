@@ -27,3 +27,9 @@ def list_articles(base_helpcenter_url: str, locale: str | None = None, limit: in
         url = data.get("next_page")  # Zendesk commonly returns absolute next_page
 
     return out #list of articles with length up to limit
+
+def fetch_article_by_id(article_id: int | str, locale: str = "en-us") -> dict:
+    url = f"https://optisignshelp.zendesk.com/api/v2/help_center/{locale}/articles/{article_id}.json"
+    r = requests.get(url, timeout=(10, 60))
+    r.raise_for_status()
+    return r.json()["article"]
