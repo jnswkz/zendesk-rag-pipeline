@@ -49,7 +49,16 @@ def safe_slug(s: str) -> str:
     return s or "article"
 
 def convert_article_to_md(article: dict, out_dir: str = "data/md") -> Path:
-
+    """
+    Docstring for convert_article_to_md
+    
+    :param article: Article data
+    :type article: dict
+    :param out_dir: Output directory
+    :type out_dir: str
+    :return: Path to the generated markdown file
+    :rtype: Path
+    """
     article_id = article.get("id")
     title = article.get("title") or f"article-{article_id}"
     url = article.get("html_url") or article.get("url") or ""

@@ -1,14 +1,14 @@
 import requests
 
-def list_articles(base_helpcenter_url: str, locale: str | None = None, limit: int = 30):
+def list_articles(base_helpcenter_url: str, locale: str | None = None, limit: int = 50):
     """
     Docstring for list_articles
     
-    :param base_helpcenter_url: Description
+    :param base_helpcenter_url: Support site base URL
     :type base_helpcenter_url: str
-    :param locale: Description
+    :param locale: Locale code
     :type locale: str | None
-    :param limit: Description
+    :param limit: Maximum number of articles to retrieve
     :type limit: int
     """ 
     session = requests.Session()
