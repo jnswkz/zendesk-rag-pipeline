@@ -86,5 +86,9 @@ def convert_article_to_md(article: dict, out_dir: str = "data/md") -> Path:
     fname = f"{article_id}-{safe_slug(title)}.md" if article_id else f"{safe_slug(title)}.md"
 
     md_path = out_path / fname
+
+    if md_path.exists():
+        return md_path
+
     md_path.write_text(content, encoding="utf-8")
     return md_path
