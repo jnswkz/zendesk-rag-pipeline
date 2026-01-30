@@ -48,7 +48,7 @@ def safe_slug(s: str) -> str:
     s = re.sub(r"[-\s]+", "-", s)
     return s or "article"
 
-def convert_article_to_md(article: dict, out_dir: str = "data/md") -> Path:
+def convert_article_to_md(article: dict, out_dir: str = "data/md", allow_overwrite: bool = False) -> Path:
     """
     Docstring for convert_article_to_md
     
@@ -96,7 +96,7 @@ def convert_article_to_md(article: dict, out_dir: str = "data/md") -> Path:
 
     md_path = out_path / fname
 
-    if md_path.exists():
+    if md_path.exists() and not allow_overwrite:
         return md_path
 
     md_path.write_text(content, encoding="utf-8")

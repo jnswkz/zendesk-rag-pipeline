@@ -1,16 +1,27 @@
 from datetime import datetime, timezone
 import time
 from pathlib import Path
+import shutil
 
 from services.crawler import list_articles
 from services.converter import convert_article_to_md
 from services.chunk import chunk_markdown
 
 
+
 URL = "https://support.optisigns.com"
 LOCALE = "en-us"
 OUT_DIR = "data/md"
+CHUNK_DIR = "data/chunks"
 
+def write_md_and_chunks(articles: list[dict], overwrite: bool = False):
+    total_chunks = 0
+
+    for article in articles:
+        md_path = convert_article_to_md(article, out_dir=OUT_DIR, allow_overwrite=overwrite)
+        total_chunks += write_chunks_for_md(Path(md_path), chunk_dir=CHUNK_DIR)
+
+    print(f"[pipeline] articles={len(articles)} chunks={total_chunks}")
 
 def parse_ts(ts: str) -> datetime:
     ts = ts.rstrip("Z")
@@ -21,17 +32,30 @@ def fetch_articles():
     return list_articles(URL, LOCALE)
 
 
-def write_md(articles: list[dict], overwrite: bool = False):
-    for article in articles:
-        convert_article_to_md(article, out_dir=OUT_DIR, allow_overwrite=overwrite)
+def write_chunks_for_md(md_path: Path, chunk_dir: str = "data/chunks") -> int:
+    md_text = md_path.read_text(encoding="utf-8")
+    chunks = chunk_markdown(md_text)
 
+    article_id = chunks[0].article_id if chunks and chunks[0].article_id else md_path.stem.split("-")[0]
+
+    out_root = Path(chunk_dir) / str(article_id)
+
+    if out_root.exists():
+        shutil.rmtree(out_root)
+    out_root.mkdir(parents=True, exist_ok=True)
+
+    for i, ch in enumerate(chunks, 1):
+        out_file = out_root / f"{article_id}_{i:04d}.md"
+        out_file.write_text(ch.text, encoding="utf-8")
+
+    return len(chunks)
 
 def main():
     articles = fetch_articles()
     if not articles:
         return
 
-    write_md(articles, overwrite=True)
+    write_md_and_chunks(articles, overwrite=True)
 
     last_updated = max(
         parse_ts(article["updated_at"]) for article in articles if "updated_at" in article
@@ -50,23 +74,9 @@ def main():
         if not new_or_updated:
             continue
 
-        write_md(new_or_updated)
+        write_md_and_chunks(new_or_updated, overwrite=True)
         last_updated = max(parse_ts(a["updated_at"]) for a in fresh if "updated_at" in a)
 
 
 if __name__ == "__main__":
-    # main()
-    md = Path("data/md_test/4404590815635-how-to-set-up-saml-20-with-optisigns-and-okta.md").read_text(encoding="utf-8")
-    chunks = chunk_markdown(md)
-    print("Chunks:", len(chunks))
-    with open('test.txt', 'w', encoding="utf-8") as f:
-        for i, chunk in enumerate(chunks):
-            f.write(f"--- Chunk {i+1} ---\n")
-            f.write(f"ID: {chunk.chunk_id}\n")
-            f.write(f"Article ID: {chunk.article_id}\n")
-            f.write(f"Title: {chunk.title}\n")
-            f.write(f"URL: {chunk.url}\n")
-            f.write(f"Heading Path: {chunk.heading_path}\n")
-            f.write(f"Is TOC: {chunk.is_toc}\n")
-            f.write(f"Text:\n{chunk.text}\n")
-            f.write("\n\n") 
+    main()
