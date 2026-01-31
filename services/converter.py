@@ -26,7 +26,7 @@ def clean_soup(soup: BeautifulSoup) -> BeautifulSoup:
     return soup
 
 def html_to_markdown(html: str) -> str:
-    soup = BeautifulSoup(html, "lxml")
+    soup = BeautifulSoup(html, "html5lib")
     soup = clean_soup(soup)
 
 
