@@ -8,6 +8,7 @@ dependencies = [
     "aiohttp>=3.13.3",
     "asyncio>=4.0.0",
     "beautifulsoup4>=4.14.3",
+    "google-cloud-storage>=3.8.0",
     "lxml>=6.0.2",
     "markdownify>=1.2.2",
     "playwright>=1.57.0",

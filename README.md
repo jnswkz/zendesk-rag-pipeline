@@ -38,4 +38,6 @@ Support articles vary a lot (how-to steps, troubleshooting, long guides, code sn
 This makes retrieval more reliable and helps the assistant cite “Article URL:” lines even when only a portion of a section is retrieved.
 Chunks are written as separate .md files under data/chunks/<article_id>/....
 
+## Sample answer 
+![Quick sanity check ](image.png)
 

@@ -1,17 +1,22 @@
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+import os
 
 from services.crawler import list_articles
 from services.converter import convert_article_to_md
 from services.uploader import load_state, save_state, upload_delta_articles
 from services.chunk import chunk_markdown
+from services.state_store_gcs import load_state_from_gcs, save_state_to_gcs
 
 URL = "https://support.optisigns.com"
 LOCALE = "en-us"
 OUT_DIR = "data/md"
 CHUNK_DIR = "data/chunks"
 STATE_PATH = "data/state.json"
+
+GCS_BUCKET = os.getenv("GCS_BUCKET")
+GCS_BLOB = os.getenv("GCS_BLOB", "optibot/state.json")
 
 
 def write_chunks_for_md(md_path: Path, chunk_dir: str = "data/chunks") -> int:
@@ -46,6 +51,8 @@ def run_once():
         return
 
     state = load_state(STATE_PATH)
+    if GCS_BUCKET:
+        state = load_state_from_gcs(GCS_BUCKET, GCS_BLOB, STATE_PATH)
     last_updated = state.get("last_updated")
 
     if last_updated:
@@ -69,6 +76,8 @@ def run_once():
     state = load_state(STATE_PATH)
     state["last_updated"] = max_updated
     save_state(state, STATE_PATH)
+    if GCS_BUCKET:
+        save_state_to_gcs(GCS_BUCKET, GCS_BLOB, STATE_PATH)
     print(f"[run] last_updated={max_updated}")
 
 if __name__ == "__main__":
